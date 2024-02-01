@@ -1,0 +1,37 @@
+特徴量加工アイデア
+
+Term				正規化
+NoEmp				正規化
+NewExist			-1, float→int
+CreateJob			正規化
+RetainedJob			正規化
+FranchiseCode		(0,1)→0, その他→1
+					後で調べる
+RevLineCr			N→0 Y→1
+LowDoc				N→0 Y→1
+DisbursementDate	変換
+Sector				n次サービスで分ける
+					dummy
+ApprovalDate		変換
+ApprovalFY			str→int
+City				州都orNotの0,1変数
+					最大都市orNot
+					大都市orNot
+					近郊度
+			
+State				治安
+					税金
+					法
+			
+BankState			Stateに同じ
+					Stateと同じorNot
+DisbursementGross	str→int
+					正規化
+					閾値で分ける
+GrAppv				str→int
+					正規化
+					閾値で分ける
+SBA_Appv			str→int
+					正規化
+					閾値で分ける
+UrbanRural			dummy
