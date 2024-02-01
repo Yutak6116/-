@@ -26,7 +26,7 @@ import pickle
 import itertools
 from tqdm.auto import tqdm
 
-import torch
+# import torch
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split, GroupKFold
 from sklearn.metrics import log_loss, roc_auc_score, matthews_corrcoef, f1_score
 from sklearn.preprocessing import LabelEncoder
@@ -39,7 +39,7 @@ from catboost import Pool, CatBoostRegressor, CatBoostClassifier
 # ====================================================
 class CFG:
     VER = 1
-    AUTHOR = 'takaito'
+    AUTHOR = 'Yuta.K'
     COMPETITION = 'FUDA2'
     METHOD_LIST = ['lightgbm', 'xgboost', 'catboost']
     seed = 42
@@ -280,7 +280,7 @@ test_df = Predicting(test_df, features, categorical_features)
 def Postprocessing(train_df: pd.DataFrame(), test_df: pd.DataFrame()) -> (pd.DataFrame(), pd.DataFrame()):
     train_df['pred_prob'] = 0
     for method in CFG.METHOD_LIST:
-        oof_df = pd.read_csv(CFG.OOF_DATA_PATH / f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv')
+        oof_df = pd.read_csv(f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv')
         train_df['pred_prob'] += CFG.model_weight_dict[method] * oof_df[f'{method}_prediction']
     best_score = 0
     best_v = 0
