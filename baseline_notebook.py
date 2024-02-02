@@ -7,6 +7,11 @@ Original file is located at
     https://colab.research.google.com/drive/1ch3kCEGRDxHZdirIGzsPXB-FBiSvTNvT
 """
 
+!pip3 install catboost
+
+from google.colab import drive
+drive.mount('/content/drive')
+
 import sys
 # ====================================================
 # Library
@@ -25,9 +30,8 @@ import joblib
 import pickle
 import itertools
 from tqdm.auto import tqdm
-from sklearn.preprocessing import OneHotEncoder
 
-# import torch
+import torch
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split, GroupKFold
 from sklearn.metrics import log_loss, roc_auc_score, matthews_corrcoef, f1_score
 from sklearn.preprocessing import LabelEncoder
@@ -40,8 +44,12 @@ from catboost import Pool, CatBoostRegressor, CatBoostClassifier
 # ====================================================
 class CFG:
     VER = 1
-    AUTHOR = 'Yuta.K'
+    AUTHOR = 'takaito'
     COMPETITION = 'FUDA2'
+    DATA_PATH = Path('/content/drive/MyDrive/Colab Notebooks/FUDA2/data')
+    OOF_DATA_PATH = Path('/content/drive/MyDrive/Colab Notebooks/FUDA2/oof')
+    MODEL_DATA_PATH = Path('/content/drive/MyDrive/Colab Notebooks/FUDA2/models')
+    SUB_DATA_PATH = Path('/content/drive/MyDrive/Colab Notebooks/FUDA2/submission')
     METHOD_LIST = ['lightgbm', 'xgboost', 'catboost']
     seed = 42
     n_folds = 7
@@ -100,14 +108,14 @@ def xgb_metric(y_pred, y_true):
     y_true = y_true.get_label()
     return 'f1score', f1_score(y_true, np.where(y_pred >= 0.5, 1, 0), average='macro')
 
-train_df = pd.read_csv('train.csv', index_col=0)
-test_df = pd.read_csv('test.csv', index_col=0)
+train_df = pd.read_csv(CFG.DATA_PATH / 'train.csv', index_col=0)
+test_df = pd.read_csv(CFG.DATA_PATH / 'test.csv', index_col=0)
 
 default_numerical_features = ['Term', 'NoEmp', 'CreateJob', 'RetainedJob', 'DisbursementGross', 'GrAppv', 'SBA_Appv', 'ApprovalFY']
 default_categorical_features = ['NewExist', 'FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']
-add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding', 'Time_since_Approval', 'ApprovalFY_Quarter', 'Loan_to_Guarantee_Ratio', 'Gross_to_Approval_Ratio', 'Emp_to_Loan_Ratio', 'JobImpactScore']
+add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding']
 numerical_features = add_numerical_features + default_numerical_features
-categorical_features = ['RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'Sector', 'Intrastate', 'DisbursementGross_bin']
+categorical_features = ['RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'Sector']
 features = numerical_features + categorical_features
 
 def Preprocessing(input_df: pd.DataFrame()) -> pd.DataFrame():
@@ -126,42 +134,20 @@ def Preprocessing(input_df: pd.DataFrame()) -> pd.DataFrame():
     output_df['NewExist'] = np.where(input_df['NewExist'] == 1, 1, 0)
     def make_features(input_df: pd.DataFrame()) -> pd.DataFrame():
         output_df = input_df.copy()
-
-        # Interaction Features
-        output_df['State_Sector'] = output_df['State'].astype(str) + '_' + output_df['Sector'].astype(str)
-        output_df['Intrastate'] = (output_df['State'] == output_df['BankState']).astype(int)
-
-        # Derived Features
-        # Loan Size Categories
-        output_df['DisbursementGross_bin'] = pd.cut(output_df['DisbursementGross'], bins=[0, 50000, 100000, 150000, np.inf], labels=['small', 'medium', 'large', 'x-large'])
-        # Employee to Loan Size Ratio
-        output_df['Emp_to_Loan_Ratio'] = output_df['NoEmp'] / (output_df['DisbursementGross'] + 1)
-        # Job Impact Score
-        output_df['JobImpactScore'] = output_df['CreateJob'] + output_df['RetainedJob']
-        
-        # Temporal Features
-        # Time since Approval
-        output_df['ApprovalDate'] = pd.to_datetime(output_df['ApprovalDate'])
-        output_df['DisbursementDate'] = pd.to_datetime(output_df['DisbursementDate'], errors='coerce')
-        output_df['Time_since_Approval'] = (output_df['DisbursementDate'] - output_df['ApprovalDate']).dt.days
-        # ApprovalFY Quarter
-        output_df['ApprovalFY_Quarter'] = output_df['ApprovalDate'].dt.quarter
-        
-        # Financial Ratios
-        output_df['Loan_to_Guarantee_Ratio'] = output_df['SBA_Appv'] / (output_df['GrAppv'] + 1)
-        output_df['Gross_to_Approval_Ratio'] = output_df['DisbursementGross'] / (output_df['GrAppv'] + 1)
-        
-        # Count Encoding (moved into make_features for completeness)
-        for col in ['FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']:
-            count_dict = dict(output_df[col].value_counts())
-            output_df[f'{col}_count_encoding'] = output_df[col].map(count_dict).fillna(1).astype(int)
-
+        # いろいろ特徴量作成を追加する
         return output_df
     output_df = make_features(output_df)
     return output_df
 
 train_df = Preprocessing(train_df)
 test_df = Preprocessing(test_df)
+
+"""（以下はPreprocessingに本来組み込むべきだが，コードが煩雑になるので，いったん切り出している．）"""
+
+for col in ['FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']:
+    count_dict = dict(train_df[col].value_counts())
+    train_df[f'{col}_count_encoding'] = train_df[col].map(count_dict)
+    test_df[f'{col}_count_encoding'] = test_df[col].map(count_dict).fillna(1).astype(int)
 
 for col in categorical_features:
     encoder = LabelEncoder()
@@ -234,7 +220,7 @@ def gradient_boosting_model_cv_training(method: str, train_df: pd.DataFrame, fea
             model, valid_pred = catboost_training(x_train, y_train, x_valid, y_valid, features, categorical_features)
 
         # Save best model
-        pickle.dump(model, open(f'{method}_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'wb'))
+        pickle.dump(model, open(CFG.MODEL_DATA_PATH / f'{method}_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'wb'))
         # Add to out of folds array
         oof_predictions[valid_index] = valid_pred
         oof_fold[valid_index] = fold + 1
@@ -246,7 +232,7 @@ def gradient_boosting_model_cv_training(method: str, train_df: pd.DataFrame, fea
     print(f'{method} our out of folds CV f1score is {score}')
     # Create a dataframe to store out of folds predictions
     oof_df = pd.DataFrame({CFG.target_col: train_df[CFG.target_col], f'{method}_prediction': oof_predictions, 'fold': oof_fold})
-    oof_df.to_csv(f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv', index = False)
+    oof_df.to_csv(CFG.OOF_DATA_PATH / f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv', index = False)
 
 def Learning(input_df: pd.DataFrame, features: list, categorical_features: list):
     for method in CFG.METHOD_LIST:
@@ -257,7 +243,7 @@ Learning(train_df, features, categorical_features)
 def lightgbm_inference(x_test: pd.DataFrame):
     test_pred = np.zeros(len(x_test))
     for fold in range(CFG.n_folds):
-        model = pickle.load(open(f'lightgbm_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
+        model = pickle.load(open(CFG.MODEL_DATA_PATH / f'lightgbm_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
         # Predict
         pred = model.predict(x_test)
         test_pred += pred
@@ -265,7 +251,7 @@ def lightgbm_inference(x_test: pd.DataFrame):
 def xgboost_inference(x_test: pd.DataFrame):
     test_pred = np.zeros(len(x_test))
     for fold in range(CFG.n_folds):
-        model = pickle.load(open(f'xgboost_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
+        model = pickle.load(open(CFG.MODEL_DATA_PATH / f'xgboost_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
         # Predict
         pred = model.predict(xgb.DMatrix(x_test))
         test_pred += pred
@@ -274,7 +260,7 @@ def xgboost_inference(x_test: pd.DataFrame):
 def catboost_inference(x_test: pd.DataFrame):
     test_pred = np.zeros(len(x_test))
     for fold in range(CFG.n_folds):
-        model = pickle.load(open(f'catboost_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
+        model = pickle.load(open(CFG.MODEL_DATA_PATH / f'catboost_fold{fold + 1}_seed{CFG.seed}_ver{CFG.VER}.pkl', 'rb'))
         # Predict
         pred = model.predict_proba(x_test)[:, 1]
         test_pred += pred
@@ -303,7 +289,7 @@ test_df = Predicting(test_df, features, categorical_features)
 def Postprocessing(train_df: pd.DataFrame(), test_df: pd.DataFrame()) -> (pd.DataFrame(), pd.DataFrame()):
     train_df['pred_prob'] = 0
     for method in CFG.METHOD_LIST:
-        oof_df = pd.read_csv(f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv')
+        oof_df = pd.read_csv(CFG.OOF_DATA_PATH / f'oof_{method}_seed{CFG.seed}_ver{CFG.VER}.csv')
         train_df['pred_prob'] += CFG.model_weight_dict[method] * oof_df[f'{method}_prediction']
     best_score = 0
     best_v = 0
@@ -318,11 +304,12 @@ def Postprocessing(train_df: pd.DataFrame(), test_df: pd.DataFrame()) -> (pd.Dat
 
 train_df, test_df = Postprocessing(train_df, test_df)
 
-test_df[['target']].to_csv(f'seed{CFG.seed}_ver{CFG.VER}_{CFG.AUTHOR}_submission.csv', header=False)
+test_df[['target']].to_csv(CFG.SUB_DATA_PATH / f'seed{CFG.seed}_ver{CFG.VER}_{CFG.AUTHOR}_submission.csv', header=False)
 
 """特徴量の重要度を確認する方法"""
 
-model = pickle.load(open(f'lightgbm_fold1_seed42_ver1.pkl', 'rb'))
+model = pickle.load(open(CFG.MODEL_DATA_PATH / f'lightgbm_fold1_seed42_ver1.pkl', 'rb'))
 importance_df = pd.DataFrame(model.feature_importance(), index=features, columns=['importance'])
 importance_df['importance'] = importance_df['importance'] / np.sum(importance_df['importance'])
 importance_df.sort_values('importance', ascending=False)
+
