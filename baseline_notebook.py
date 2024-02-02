@@ -25,6 +25,7 @@ import joblib
 import pickle
 import itertools
 from tqdm.auto import tqdm
+from sklearn.preprocessing import OneHotEncoder
 
 # import torch
 from sklearn.model_selection import KFold, StratifiedKFold, train_test_split, GroupKFold
@@ -104,9 +105,9 @@ test_df = pd.read_csv('test.csv', index_col=0)
 
 default_numerical_features = ['Term', 'NoEmp', 'CreateJob', 'RetainedJob', 'DisbursementGross', 'GrAppv', 'SBA_Appv', 'ApprovalFY']
 default_categorical_features = ['NewExist', 'FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']
-add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding']
+add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding', 'Time_since_Approval', 'ApprovalFY_Quarter', 'Loan_to_Guarantee_Ratio', 'Gross_to_Approval_Ratio', 'Emp_to_Loan_Ratio', 'JobImpactScore']
 numerical_features = add_numerical_features + default_numerical_features
-categorical_features = ['RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'Sector']
+categorical_features = ['RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'Sector', 'Intrastate', 'DisbursementGross_bin']
 features = numerical_features + categorical_features
 
 def Preprocessing(input_df: pd.DataFrame()) -> pd.DataFrame():
@@ -125,20 +126,42 @@ def Preprocessing(input_df: pd.DataFrame()) -> pd.DataFrame():
     output_df['NewExist'] = np.where(input_df['NewExist'] == 1, 1, 0)
     def make_features(input_df: pd.DataFrame()) -> pd.DataFrame():
         output_df = input_df.copy()
-        # いろいろ特徴量作成を追加する
+
+        # Interaction Features
+        output_df['State_Sector'] = output_df['State'].astype(str) + '_' + output_df['Sector'].astype(str)
+        output_df['Intrastate'] = (output_df['State'] == output_df['BankState']).astype(int)
+
+        # Derived Features
+        # Loan Size Categories
+        output_df['DisbursementGross_bin'] = pd.cut(output_df['DisbursementGross'], bins=[0, 50000, 100000, 150000, np.inf], labels=['small', 'medium', 'large', 'x-large'])
+        # Employee to Loan Size Ratio
+        output_df['Emp_to_Loan_Ratio'] = output_df['NoEmp'] / (output_df['DisbursementGross'] + 1)
+        # Job Impact Score
+        output_df['JobImpactScore'] = output_df['CreateJob'] + output_df['RetainedJob']
+        
+        # Temporal Features
+        # Time since Approval
+        output_df['ApprovalDate'] = pd.to_datetime(output_df['ApprovalDate'])
+        output_df['DisbursementDate'] = pd.to_datetime(output_df['DisbursementDate'], errors='coerce')
+        output_df['Time_since_Approval'] = (output_df['DisbursementDate'] - output_df['ApprovalDate']).dt.days
+        # ApprovalFY Quarter
+        output_df['ApprovalFY_Quarter'] = output_df['ApprovalDate'].dt.quarter
+        
+        # Financial Ratios
+        output_df['Loan_to_Guarantee_Ratio'] = output_df['SBA_Appv'] / (output_df['GrAppv'] + 1)
+        output_df['Gross_to_Approval_Ratio'] = output_df['DisbursementGross'] / (output_df['GrAppv'] + 1)
+        
+        # Count Encoding (moved into make_features for completeness)
+        for col in ['FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']:
+            count_dict = dict(output_df[col].value_counts())
+            output_df[f'{col}_count_encoding'] = output_df[col].map(count_dict).fillna(1).astype(int)
+
         return output_df
     output_df = make_features(output_df)
     return output_df
 
 train_df = Preprocessing(train_df)
 test_df = Preprocessing(test_df)
-
-"""（以下はPreprocessingに本来組み込むべきだが，コードが煩雑になるので，いったん切り出している．）"""
-
-for col in ['FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']:
-    count_dict = dict(train_df[col].value_counts())
-    train_df[f'{col}_count_encoding'] = train_df[col].map(count_dict)
-    test_df[f'{col}_count_encoding'] = test_df[col].map(count_dict).fillna(1).astype(int)
 
 for col in categorical_features:
     encoder = LabelEncoder()
