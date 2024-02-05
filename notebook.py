@@ -105,7 +105,8 @@ test_df = pd.read_csv('test.csv', index_col=0)
 
 default_numerical_features = ['Term', 'NoEmp', 'CreateJob', 'RetainedJob', 'DisbursementGross', 'GrAppv', 'SBA_Appv', 'ApprovalFY']
 default_categorical_features = ['NewExist', 'FranchiseCode', 'RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'BankState', 'City', 'Sector']
-add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding', 'Time_since_Approval', 'ApprovalFY_Quarter', 'Loan_to_Guarantee_Ratio', 'Gross_to_Approval_Ratio', 'Emp_to_Loan_Ratio', 'JobImpactScore']
+add_numerical_features = ['FranchiseCode_count_encoding', 'RevLineCr_count_encoding', 'LowDoc_count_encoding', 'UrbanRural_count_encoding', 'State_count_encoding', 'BankState_count_encoding', 'City_count_encoding', 'Sector_count_encoding', 
+                          'Time_since_Approval', 'ApprovalFY_Quarter', 'Loan_to_Guarantee_Ratio', 'Gross_to_Approval_Ratio', 'Emp_to_Loan_Ratio', 'JobImpactScore']
 numerical_features = add_numerical_features + default_numerical_features
 categorical_features = ['RevLineCr', 'LowDoc', 'UrbanRural', 'State', 'Sector', 'Intrastate', 'DisbursementGross_bin']
 features = numerical_features + categorical_features
@@ -326,4 +327,5 @@ test_df[['target']].to_csv(f'seed{CFG.seed}_ver{CFG.VER}_{CFG.AUTHOR}_submission
 model = pickle.load(open(f'lightgbm_fold1_seed42_ver{CFG.VER}.pkl', 'rb'))
 importance_df = pd.DataFrame(model.feature_importance(), index=features, columns=['importance'])
 importance_df['importance'] = importance_df['importance'] / np.sum(importance_df['importance'])
-importance_df.sort_values('importance', ascending=False)
+importance_df_sorted = importance_df.sort_values('importance', ascending=False)
+print(importance_df_sorted)
